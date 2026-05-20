@@ -15,7 +15,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 #                               REveViewer, REveScene, REveGeoShape, and
 #                               (if ever needed) the REveCalo* / projection
 #                               classes.  The orthographic / perspective
-#                               multi-viewer setup used by event_display_reco
+#                               multi-viewer setup used by sea_cucumber
 #                               needs only REveViewer, which lives here -- no
 #                               extra component is required for it.
 #   ROOTWebDisplay            - the web/local client transport EVE-7 uses to
@@ -24,9 +24,9 @@ find_package(ROOT 6.30 CONFIG REQUIRED
     COMPONENTS Core Geom Gdml Tree RIO ROOTEve ROOTWebDisplay MathCore)
 
 add_executable(event_display      event_display.cxx)
-add_executable(event_display_reco event_display_reco.cxx)
+add_executable(sea_cucumber sea_cucumber.cxx)
 
-set(_targets event_display event_display_reco)
+set(_targets event_display sea_cucumber)
 foreach(_t ${_targets})
     target_link_libraries(${_t} PRIVATE
         ROOT::Core

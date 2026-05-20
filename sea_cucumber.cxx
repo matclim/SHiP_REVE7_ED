@@ -1,5 +1,5 @@
 // =============================================================================
-//  event_display_reco.cxx
+//  sea_cucumber.cxx
 //
 //  REve-based event display showing the pi0 reconstruction:
 //
@@ -26,7 +26,7 @@
 //  Build with the same CMakeLists.txt: add this file as a new executable
 //  target alongside event_display.cxx.
 //
-//  Run:   ./event_display_reco <detector.gdml> <truth+calo.root> <cluster.root>
+//  Run:   ./sea_cucumber <detector.gdml> <truth+calo.root> <cluster.root>
 //                              [--event N] [--tree-truth calo_events]
 //                              [--tree-particles truth_particles]
 //                              [--tree-cluster cluster_tree]
@@ -232,6 +232,11 @@ public:
     // geometry has been loaded and placed.
     void SetupViewers();
 
+    // Add static scene decorations (origin coordinate axes) sized to the
+    // detector.  Purely cosmetic / orientation aid.  Call after the
+    // geometry has been placed (needs fOff / fHitScale to be valid).
+    void AddSceneDecorations();
+
     // Diagnostic: print the scene-space (cm) bounding boxes of the
     // geometry, the calo edep hits, the cluster hits, and the truth/reco
     // vertices for event `i`, so frame-alignment problems are visible.
@@ -334,6 +339,31 @@ void EventDisplay::Init()
     fEventScene->AddElement(fEventHolder);
 }
 
+// Add origin coordinate axes to the geometry scene as an orientation aid.
+// The Z (beam) axis is intentionally omitted -- the beam direction is
+// already obvious from the detector layout, and a long blue axis line is
+// off-palette.  Only the transverse X and Y axes are drawn, in red and
+// orange (the red/orange/white/purple scheme).
+void EventDisplay::AddSceneDecorations()
+{
+    // Physical axis length (mm) -> scaled scene units.
+    const double L = 1500.0 * fHitScale;
+
+    struct Ax { double dx, dy, dz; Color_t col; const char* name; };
+    const Ax axes[2] = {
+        { L, 0, 0, kRed,       "axis_X" },
+        { 0, L, 0, kOrange + 1,"axis_Y" },
+    };
+    for (const auto& a : axes) {
+        auto* ls = new REX::REveStraightLineSet(a.name);
+        ls->AddLine(0, 0, 0, a.dx, a.dy, a.dz);
+        ls->SetLineColor(a.col);
+        ls->SetLineWidth(3);
+        fGeoHolder->AddElement(ls);
+    }
+    std::cout << "[ED] added origin axes (X red, Y orange; Z omitted)\n";
+}
+
 // Configure viewers for a FIXED-TARGET calorimeter display.
 //
 // Why not REveCalo3D/REveCalo2D: those classes model a COLLIDER
@@ -382,6 +412,10 @@ void EventDisplay::SetupViewers()
         v->AddScene(fGeoScene);
         v->AddScene(fEventScene);
         v->SetCameraType(cam);
+        // Dark background -- makes the vivid colours pop, standard
+        // event-display look.  REveViewer exposes only a black/light bool
+        // (SetBlackBackground), not an arbitrary colour.
+        v->SetBlackBackground(true);
         std::cout << "[ED] spawned viewer '" << name << "'\n";
     };
 
@@ -402,6 +436,7 @@ void EventDisplay::SetupViewers()
     // Leave the pre-existing default viewer as an extra perspective view.
     if (auto* def = fEve->GetDefaultViewer()) {
         def->SetCameraType(REX::REveViewer::kCameraPerspXOZ);
+        def->SetBlackBackground(true);
     }
 
     // Reset all viewer cameras to fit their (final) scene contents.
@@ -452,22 +487,28 @@ void EventDisplay::BuildGeoShapes(TGeoNode* node, const TGeoHMatrix& parent_mtx,
             auto* eshape = new REX::REveGeoShape(vname.c_str());
             eshape->SetShape(shape);
             eshape->RefMainTrans().SetFrom(global);
-            // Color by volume name pattern.  The full list of materials:
+            // Color by volume name pattern -- red / orange / white /
+            // purple palette (no green or blue), with neutral gray for the
+            // bulk absorber.  Opacity raised (lower alpha = more opaque)
+            // so the geometry reads clearly in the flattened 2D side
+            // views; the bright hit points still show through in 3D.
             //   Lead absorber  -> dark gray (the bulk of the calo mass)
-            //   WidePVT        -> orange (the wide scintillator bars)
-            //   ThinPS         -> yellow (the thin scintillator bars)
-            //   HCAL_*         -> green (HCAL scintillator)
-            //   IronPlate*     -> steel blue (HCAL iron absorbers)
-            //   anything else  -> light gray (fallback)
-            Color_t col      = kGray + 2;
-            Char_t  alpha    = 92;   // very transparent so event content shows through
-            if      (vname.find("Lead")   != std::string::npos) { col = kGray + 3;   alpha = 88; }
-            else if (vname.find("WidePVT") != std::string::npos){ col = kOrange + 1; alpha = 85; }
-            else if (vname.find("ThinPS") != std::string::npos) { col = kYellow - 7; alpha = 85; }
-            else if (vname.find("Sharp")  != std::string::npos) { col = kAzure - 4;  alpha = 85; }
-            else if (vname.find("HPL")    != std::string::npos) { col = kCyan + 2;   alpha = 85; }
-            else if (vname.find("HCAL")   != std::string::npos) { col = kGreen + 2;  alpha = 88; }
-            else if (vname.find("Iron")   != std::string::npos) { col = kAzure - 2;  alpha = 90; }
+            //   WidePVT        -> bright orange (wide scintillator bars)
+            //   ThinPS         -> deep red (thin scintillator bars)
+            //   Sharp*         -> purple
+            //   HPL*           -> magenta
+            //   HCAL_*         -> orange-red (HCAL scintillator)
+            //   IronPlate*     -> mid gray (HCAL iron absorbers)
+            //   anything else  -> neutral gray (fallback)
+            Color_t col   = kGray + 1;
+            Char_t  alpha = 55;
+            if      (vname.find("Lead")   != std::string::npos) { col = kGray + 3;   alpha = 55; }
+            else if (vname.find("WidePVT")!= std::string::npos) { col = kOrange + 1; alpha = 45; }
+            else if (vname.find("ThinPS") != std::string::npos) { col = kRed + 1;    alpha = 45; }
+            else if (vname.find("Sharp")  != std::string::npos) { col = kViolet + 1; alpha = 48; }
+            else if (vname.find("HPL")    != std::string::npos) { col = kMagenta;    alpha = 48; }
+            else if (vname.find("HCAL")   != std::string::npos) { col = kOrange + 7; alpha = 50; }
+            else if (vname.find("Iron")   != std::string::npos) { col = kGray + 2;   alpha = 55; }
             eshape->SetMainColor(col);
             eshape->SetMainTransparency(alpha);
             parent->AddElement(eshape);
@@ -615,6 +656,7 @@ void EventDisplay::AutoCenterGeometry()
 {
     if (fGeoHolder->NumChildren() == 0) return;
 
+    // cm -> mm scale for geometry (positions AND shape dimensions).
     // GDML -> analysis frame: pure z translation, in millimetres.
     const double kFrameShiftMm = 60413.5;
     // cm -> mm scale for geometry (positions AND shape dimensions).
@@ -997,11 +1039,15 @@ void EventDisplay::GotoEvent(Long64_t i)
         const double emin = *std::min_element(fEdep->begin(), fEdep->end());
         const double emax = std::max(emin + 1e-6,
                                      *std::max_element(fEdep->begin(), fEdep->end()));
+        // Energy heat-map in the red / orange / white / purple palette
+        // (no green/blue): low energy = purple, rising through red and
+        // orange to white-hot at the top.  High-energy bins drawn larger
+        // so the most energetic deposits visually dominate.
         constexpr int kNBins = 5;
         const Color_t bin_colors[kNBins] = {
-            kAzure + 1, kCyan + 1, kGreen + 1, kOrange + 7, kRed + 1
+            kViolet + 1, kMagenta + 2, kRed, kOrange + 1, kWhite
         };
-        const Float_t bin_sizes[kNBins] = { 4.5f, 5.5f, 6.5f, 7.5f, 8.5f };
+        const Float_t bin_sizes[kNBins] = { 4.0f, 5.5f, 7.0f, 9.0f, 11.0f };
         REX::REvePointSet* pbin[kNBins];
         for (int b = 0; b < kNBins; ++b) {
             pbin[b] = new REX::REvePointSet(
@@ -1063,7 +1109,43 @@ void EventDisplay::GotoEvent(Long64_t i)
     //     cylinder isn't, that's a rendering issue, not a placement one).
     // ------------------------------------------------------------------
     if (rOk) {
-        const Color_t cylCol[2] = { kCyan + 1, kMagenta + 1 };
+        // Two photons: red and white -- a clean, high-contrast pair that
+        // reads well against a dark background.
+        const Color_t cylCol[2] = { kRed, kWhite };
+
+        // ---- Cluster hits, colored by their cluster -----------------------
+        // hit_cluster on the cluster_tree hits gives each hit's cluster id.
+        // Each photon owns two clusters: an H cluster (phs[p].hClId) whose
+        // hits carry a Y coordinate in hit_pos, and a V cluster
+        // (phs[p].vClId) whose hits carry an X coordinate.  The other
+        // transverse coordinate is not measured, so it is set to 0 -- the
+        // hits therefore lie on two perpendicular strip planes, which is
+        // the honest representation of 1D cluster-finder hits.  Each
+        // photon's hits are drawn in that photon's color (cylCol[p]).
+        if (fHitClust && fHitZ && fHitPos && !fHitClust->empty()) {
+            for (int p = 0; p < 2; ++p) {
+                if (!phs[p].ok) continue;
+                auto* ps = new REX::REvePointSet(
+                    Form("cluster_hits_%d", p),
+                    Form("Hits of photon %d's clusters", p));
+                ps->SetMarkerStyle(20);
+                ps->SetMarkerSize(3.5f);
+                ps->SetMarkerColor(cylCol[p]);
+                const int hId = phs[p].hClId;
+                const int vId = phs[p].vClId;
+                for (size_t h = 0; h < fHitClust->size(); ++h) {
+                    const int hc = (*fHitClust)[h];
+                    double xm = 0.0, ym = 0.0;
+                    const double zm = (*fHitZ)[h];
+                    if      (hc == hId) ym = (*fHitPos)[h];  // H hit: pos is Y
+                    else if (hc == vId) xm = (*fHitPos)[h];  // V hit: pos is X
+                    else continue;                           // not this photon
+                    const Vec3 s = toScene(xm, ym, zm);
+                    ps->SetNextPoint((float)s.x, (float)s.y, (float)s.z);
+                }
+                fEventHolder->AddElement(ps);
+            }
+        }
 
         // Full calo z extent from ALL cluster hits in this event.  Used as
         // the cylinder length so each photon's tube spans the entire
@@ -1171,7 +1253,9 @@ void EventDisplay::GotoEvent(Long64_t i)
             auto* shape = new REX::REveGeoShape(Form("cluster_cyl_%d", p));
             shape->SetShape(tube);
             shape->SetMainColor(cylCol[p]);
-            shape->SetMainTransparency(20);
+            // Fairly transparent: the bold color still reads, but the
+            // energy hits inside the shower cylinder stay visible.
+            shape->SetMainTransparency(62);
             shape->RefMainTrans().SetFrom(combi);
             fEventHolder->AddElement(shape);
 
@@ -1182,16 +1266,16 @@ void EventDisplay::GotoEvent(Long64_t i)
                 const Vec3 v = toScene(recoVtx.x, recoVtx.y, recoVtx.z);
                 ls->AddLine(c_cm.x, c_cm.y, c_cm.z, v.x, v.y, v.z);
                 ls->SetLineColor(cylCol[p]);
-                ls->SetLineWidth(4);
+                ls->SetLineWidth(6);
                 fEventHolder->AddElement(ls);
             }
         }
 
         // ---- Vertex markers ----------------------------------------------
-        // Truth vertex: green sphere.  Reco vertex (POCA): yellow sphere.
-        // No lines emanate from the truth vertex per request -- only the
-        // marker.  Both vertices use REveGeoShape + TGeoSphere because we
-        // know that pipeline works in this REve build.
+        // In-palette (red/orange/white/purple), and distinct from the
+        // red+white cluster colours:
+        //   truth vertex -> purple
+        //   reco POCA    -> orange
         auto makeVtxSphere = [&](const Vec3& v_mm, Color_t col, const char* name) {
             const Vec3 v_scene = toScene(v_mm.x, v_mm.y, v_mm.z);
             // Radius: a physical ~400 mm marker, scaled by fHitScale like
@@ -1207,8 +1291,8 @@ void EventDisplay::GotoEvent(Long64_t i)
             gs->RefMainTrans().SetFrom(tr);
             fEventHolder->AddElement(gs);
         };
-        if (tOk) makeVtxSphere(truthVtx, kGreen + 2,   "truth_vertex");
-        if (rOk) makeVtxSphere(recoVtx,  kYellow,      "reco_vertex_POCA");
+        if (tOk) makeVtxSphere(truthVtx, kViolet + 1, "truth_vertex");
+        if (rOk) makeVtxSphere(recoVtx,  kOrange + 1, "reco_vertex_POCA");
     }
 
 
@@ -1347,6 +1431,9 @@ int main(int argc, char** argv)
     // rigid translation that recenters the whole scene on the detector.
     // It must run before any event is drawn (toScene() uses fOff).
     ed.AutoCenterGeometry();
+
+    // Cosmetic: origin coordinate axes as an orientation aid.
+    ed.AddSceneDecorations();
 
     // Pick the best event (smallest |z_reco - z_truth|) unless overridden.
     Long64_t evToShow = 0;
